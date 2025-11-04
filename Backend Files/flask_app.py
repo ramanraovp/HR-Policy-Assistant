@@ -5,6 +5,7 @@ from PyPDF2 import PdfReader
 from docx import Document as DocxDocument
 import google.generativeai as genai
 from functools import wraps
+from datetime import datetime
 
 # Determine correct paths for templates and static files located in the workspace
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -18,7 +19,8 @@ app.secret_key = 'your-secret-key-change-this-in-production'
 
 # Configure Gemini API (Free tier available)
 # Get your free API key from: https://makersuite.google.com/app/apikey
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
+# NOTE: In a production app, you should load this from an environment variable for security.
+GEMINI_API_KEY = "AIzaSyCz45MdZbcVS4uz1iay-TRvpdz-WXM1sSI"
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Simple user database (in production, use a proper database)
@@ -40,6 +42,7 @@ def extract_text(file_path):
     
     try:
         if ext == '.pdf':
+            # PyPDF2 usage for text extraction
             reader = PdfReader(file_path)
             text = ''
             for page in reader.pages:
@@ -49,12 +52,16 @@ def extract_text(file_path):
                     continue
             return text
         elif ext == '.docx':
+            # docx usage for text extraction
             doc = DocxDocument(file_path)
             return '\n'.join([para.text for para in doc.paragraphs])
         elif ext == '.txt':
+            # Plain text file reading
             with open(file_path, 'r', encoding='utf-8') as f:
                 return f.read()
     except Exception as e:
+        # Log the error for debugging
+        print(f"Extraction Error: {e}")
         return f"Error extracting text: {str(e)}"
     
     return ''
@@ -77,16 +84,21 @@ def login():
         else:
             return jsonify({'success': False, 'message': 'Invalid credentials'})
     
+    # Assuming 'login.html' exists in the template folder
     return render_template('login.html')
 
 @app.route('/dashboard')
 @login_required
 def dashboard():
+    # Assuming 'dashboard.html' exists in the template folder
     return render_template('dashboard.html', username=session['username'])
 
 @app.route('/logout')
 def logout():
     session.pop('username', None)
+    session.pop('document_text', None)
+    session.pop('chat_history', None)
+    session.pop('file_metadata', None)
     return redirect(url_for('login'))
 
 @app.route('/upload', methods=['POST'])
@@ -99,25 +111,41 @@ def upload_file():
     if file.filename == '':
         return jsonify({'success': False, 'message': 'No file selected'})
     
-    # Save file temporarily
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp_file:
-        file.save(tmp_file.name)
-        temp_file_path = tmp_file.name
-    
-    # Extract text
-    document_text = extract_text(temp_file_path)
-    os.remove(temp_file_path)
+    # Save file temporarily to disk
+    temp_file_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp_file:
+            file.save(tmp_file.name)
+            temp_file_path = tmp_file.name
+        
+        # Extract text
+        document_text = extract_text(temp_file_path)
+        file_size = os.path.getsize(temp_file_path)
+    finally:
+        # Clean up the temporary file
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
     
     if not document_text.strip():
         return jsonify({'success': False, 'message': 'No text could be extracted from the document'})
     
-    # Store in session
+    # Store in session with metadata
     session['document_text'] = document_text
+    session['chat_history'] = []  # Reset chat history for new document
+    session['file_metadata'] = {
+        'filename': file.filename,
+        'file_size': file_size,
+        'upload_time': datetime.now().isoformat(),
+        'char_count': len(document_text),
+        'word_count': len(document_text.split()),
+        'file_type': os.path.splitext(file.filename)[1].upper()
+    }
     
     return jsonify({
         'success': True,
         'text': document_text,
-        'length': len(document_text)
+        'length': len(document_text),
+        'metadata': session['file_metadata']
     })
 
 @app.route('/ask', methods=['POST'])
@@ -125,6 +153,8 @@ def upload_file():
 def ask_question():
     question = request.json.get('question')
     document_text = session.get('document_text', '')
+    chat_history = session.get('chat_history', [])
+    file_metadata = session.get('file_metadata', {})
     
     if not question:
         return jsonify({'success': False, 'message': 'No question provided'})
@@ -133,29 +163,75 @@ def ask_question():
         return jsonify({'success': False, 'message': 'No document uploaded'})
     
     try:
-        # Use Gemini API (Free tier)
-        model = genai.GenerativeModel('gemini-pro')
+        # Switching to the current, highly available 'gemini-2.5-flash'.
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
-        prompt = f"""You are a helpful assistant for HR Policy documents.
+        # Build conversation context from history
+        context = ""
+        if chat_history:
+            context = "\n\nPrevious conversation:\n"
+            # Last 5 exchanges for context to maintain focus
+            for i, msg in enumerate(chat_history[-5:]):
+                context += f"Q{i+1}: {msg.get('question', '')}\nA{i+1}: {msg.get('answer', '')}\n\n"
+        
+        # Add file metadata context
+        metadata_context = f"\n\nFile Information:\n"
+        metadata_context += f"Filename: {file_metadata.get('filename', 'Unknown')}\n"
+        metadata_context += f"File Type: {file_metadata.get('file_type', 'Unknown')}\n"
+        metadata_context += f"Characters: {file_metadata.get('char_count', 0)}\n"
+        metadata_context += f"Words: {file_metadata.get('word_count', 0)}\n"
+        
+        prompt = f"""You are a helpful assistant for HR Policy documents. You can answer questions about the document content, provide summaries, and give information about the document itself.
+All your responses MUST be formatted using Markdown (e.g., bolding, bullet points, headers) for maximum clarity and readability.
+
+{metadata_context}
 
 Document Text:
 {document_text}
+{context}
+Current Question: {question}
 
-Question: {question}
-
-Please provide a clear and concise answer based on the document."""
+Please provide a clear and concise answer based on the document and the conversation context. If the user asks about the file itself (like filename, size, type), use the file information provided above."""
 
         response = model.generate_content(prompt)
         answer = response.text
         
-        return jsonify({'success': True, 'answer': answer})
+        # Add to chat history
+        chat_history.append({
+            'question': question,
+            'answer': answer,
+            'timestamp': datetime.now().isoformat()
+        })
+        session['chat_history'] = chat_history
+        
+        return jsonify({
+            'success': True, 
+            'answer': answer,
+            'chat_history': chat_history
+        })
     
     except Exception as e:
-        return jsonify({'success': False, 'message': f'Error: {str(e)}'})
+        # Log the error
+        print(f"Gemini API Error: {e}")
+        return jsonify({'success': False, 'message': f'Error processing request: {str(e)}'})
+
+@app.route('/clear_chat', methods=['POST'])
+@login_required
+def clear_chat():
+    """Clear chat history while keeping the document"""
+    session['chat_history'] = []
+    return jsonify({'success': True, 'message': 'Chat history cleared'})
+
+@app.route('/get_chat_history', methods=['GET'])
+@login_required
+def get_chat_history():
+    """Retrieve current chat history"""
+    chat_history = session.get('chat_history', [])
+    return jsonify({'success': True, 'chat_history': chat_history})
 
 if __name__ == '__main__':
     # Startup info to help debugging template/static path issues
-    print('Starting Flask app')
+    print('Starting Flask app with Chat Feature')
     print(f'Base dir: {BASE_DIR}')
     print(f'Frontend dir: {FRONTEND_DIR}')
     print(f'Template folder: {TEMPLATE_FOLDER}')
