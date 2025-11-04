@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR Policy Assistant - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="icon">📄</div>
+                <h2>HR Policy Assistant</h2>
+            </div>
+            
+            <div class="user-info">
+                <div class="user-avatar">{{ username[0].upper() }}</div>
+                <div class="user-details">
+                    <p class="user-name">{{ username }}</p>
+                    <p class="user-role">User</p>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active">
+                    <span class="nav-icon">📁</span>
+                    <span>Documents</span>
+                </a>
+                <a href="/logout" class="nav-item">
+                    <span class="nav-icon">🚪</span>
+                    <span>Logout</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <p>Powered by Gemini AI</p>
+                <p class="free-badge">✨ 100% Free</p>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="main-content">
+            <header class="dashboard-header">
+                <h1>Document Q&A Assistant</h1>
+                <p>Upload your HR policy documents and ask questions</p>
+            </header>
+            
+            <div class="content-wrapper">
+                <!-- Upload Section -->
+                <div class="upload-section">
+                    <div class="upload-box" id="uploadBox">
+                        <input type="file" id="fileInput" accept=".pdf,.docx,.txt" style="display: none;">
+                        <div class="upload-content">
+                            <div class="upload-icon">📎</div>
+                            <h3>Upload Document</h3>
+                            <p>Click to upload or drag and drop</p>
+                            <p class="file-types">PDF, DOCX, or TXT</p>
+                        </div>
+                    </div>
+                    
+                    <div id="uploadStatus" class="upload-status"></div>
+                </div>
+                
+                <!-- Document Preview Section -->
+                <div id="documentPreview" class="document-preview" style="display: none;">
+                    <div class="preview-header">
+                        <h3>📄 Document Preview</h3>
+                        <button id="clearDocument" class="btn-secondary">Clear</button>
+                    </div>
+                    <div class="preview-content">
+                        <textarea id="documentText" readonly></textarea>
+                        <p class="document-stats" id="documentStats"></p>
+                    </div>
+                </div>
+                
+                <!-- Q&A Section -->
+                <div id="qaSection" class="qa-section" style="display: none;">
+                    <h3>💬 Ask Questions</h3>
+                    
+                    <div class="question-input-wrapper">
+                        <input type="text" id="questionInput" placeholder="Ask a question about the document..." />
+                        <button id="askButton" class="btn-primary">Ask</button>
+                    </div>
+                    
+                    <div id="answerSection" class="answer-section" style="display: none;">
+                        <div class="answer-header">
+                            <h4>Answer</h4>
+                        </div>
+                        <div id="answerText" class="answer-text"></div>
+                    </div>
+                    
+                    <div id="loadingIndicator" class="loading-indicator" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>Generating answer...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
